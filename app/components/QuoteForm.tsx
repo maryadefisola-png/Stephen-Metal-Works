@@ -1,28 +1,21 @@
-use client
+'use client'
 
 import { FormEvent, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 export default function QuoteForm() {
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
   async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setLoading(true)
+    e.preventDefault(); setLoading(true); setStatus('')
     const form = new FormData(e.currentTarget)
-    const supabase = createClient()
-    const { error } = await supabase.from('quote_requests').insert({
-      customer_name: String(form.get('customer_name') || ''),
-      phone: String(form.get('phone') || ''),
-      whatsapp: String(form.get('whatsapp') || ''),
-      location: String(form.get('location') || ''),
-      project_type: String(form.get('project_type') || ''),
-      dimensions: String(form.get('dimensions') || ''),
-      description: String(form.get('description') || '')
-    })
-    setLoading(false)
-    if (error) setStatus('Something went wrong. Please try WhatsApp instead.')
-    else { setStatus('Request received. We will contact you soon.'); e.currentTarget.reset() }
+    const payload = Object.fromEntries(form.entries())
+    try {
+      const res = await fetch('/api/quotes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Something went wrong. Please try WhatsApp instead.')
+      setStatus('Request received. We will contact you soon.'); e.currentTarget.reset()
+    } catch (error) { setStatus(error instanceof Error ? error.message : 'Unable to submit request.') }
+    finally { setLoading(false) }
   }
   return <form className='quoteform' onSubmit={submit}>
     <div className='formgrid'><input name='customer_name' placeholder='Your name' required /><input name='phone' placeholder='Phone number' required /><input name='whatsapp' placeholder='WhatsApp number (optional)' /><input name='location' placeholder='Project location' required /></div>
