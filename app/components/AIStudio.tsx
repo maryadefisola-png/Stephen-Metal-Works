@@ -1,6 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function AIStudio() {
   const [description, setDescription] = useState('')
@@ -21,9 +27,11 @@ export default function AIStudio() {
     if (description.trim().length < 8) { setError('Please describe your idea in a little more detail.'); return }
     setLoading(true)
     try {
-      const res = await fetch('https://hyeutqboexofqqcqutlp.supabase.co/functions/v1/ai-design', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description, projectType, style, material, colour, dimensions }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Unable to create the concept.')
+      const { data, error: functionError } = await supabase.functions.invoke('ai-design', {
+        body: { description, projectType, style, material, colour, dimensions }
+      })
+      if (functionError) throw new Error(functionError.message || 'Unable to create the concept.')
+      if (!data?.concept) throw new Error(data?.error || 'Unable to create the concept.')
       setConcept(data.concept)
       generateImage(data.concept)
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to create the concept.') }
@@ -33,10 +41,12 @@ export default function AIStudio() {
   async function generateImage(aiConcept: any) {
     setImageLoading(true); setImageError('')
     try {
-      const res = await fetch('https://hyeutqboexofqqcqutlp.supabase.co/functions/v1/ai-design-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description, projectType, style, material, colour, dimensions, conceptName: aiConcept?.concept_name, designFeatures: aiConcept?.design_features }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Unable to generate the visual design.')
-      setImage(data.image || '')
+      const { data, error: functionError } = await supabase.functions.invoke('ai-design-image', {
+        body: { description, projectType, style, material, colour, dimensions, conceptName: aiConcept?.concept_name, designFeatures: aiConcept?.design_features }
+      })
+      if (functionError) throw new Error(functionError.message || 'Unable to generate the visual design.')
+      if (!data?.image) throw new Error(data?.error || 'Unable to generate the visual design.')
+      setImage(data.image)
     } catch (e) { setImageError(e instanceof Error ? e.message : 'Unable to generate the visual design.') }
     finally { setImageLoading(false) }
   }
