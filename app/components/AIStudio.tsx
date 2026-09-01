@@ -8,7 +8,18 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function AIStudio() {
+type QuoteDesign = {
+  projectType: string
+  dimensions: string
+  description: string
+  generatedDesignUrl: string
+  conceptName: string
+  customerSummary: string
+  designFeatures: string[]
+  practicalNotes: string
+}
+
+export default function AIStudio({ onQuote }: { onQuote?: (design: QuoteDesign) => void }) {
   const [description, setDescription] = useState('')
   const [projectType, setProjectType] = useState('Gate')
   const [style, setStyle] = useState('Modern')
@@ -21,6 +32,7 @@ export default function AIStudio() {
   const [imageError, setImageError] = useState('')
   const [concept, setConcept] = useState<any>(null)
   const [image, setImage] = useState('')
+  const [imageSaving, setImageSaving] = useState(false)
 
   async function generate() {
     setError(''); setImageError(''); setConcept(null); setImage('')
@@ -51,6 +63,45 @@ export default function AIStudio() {
     finally { setImageLoading(false) }
   }
 
+  async function saveImage() {
+    if (!image || !concept) return ''
+    if (image.startsWith('http')) return image
+    setImageSaving(true)
+    try {
+      const base64 = image.split(',')[1]
+      const binary = atob(base64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      const path = `generated/${crypto.randomUUID()}.png`
+      const { error } = await supabase.storage.from('ai-designs').upload(path, bytes, {
+        contentType: 'image/png', cacheControl: '31536000', upsert: false
+      })
+      if (error) throw error
+      const { data } = supabase.storage.from('ai-designs').getPublicUrl(path)
+      setImage(data.publicUrl)
+      return data.publicUrl
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : 'Unable to save the design image.')
+      return ''
+    } finally { setImageSaving(false) }
+  }
+
+  async function requestQuote() {
+    const generatedDesignUrl = await saveImage()
+    if (!generatedDesignUrl) return
+    onQuote?.({
+      projectType,
+      dimensions,
+      description,
+      generatedDesignUrl,
+      conceptName: concept.concept_name,
+      customerSummary: concept.customer_summary,
+      designFeatures: concept.design_features || [],
+      practicalNotes: concept.practical_notes || ''
+    })
+    setTimeout(() => document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth' }), 50)
+  }
+
   return <div className="ai-studio-live">
     <div className="ai-form">
       <label>What do you want to build?<select value={projectType} onChange={e => setProjectType(e.target.value)}><option>Gate</option><option>Door</option><option>Burglar Proofing</option><option>Railing</option><option>Staircase</option><option>Custom Metal Work</option></select></label>
@@ -63,12 +114,15 @@ export default function AIStudio() {
     <div className="ai-result">
       {concept ? <>
         <div className="sectiontag">AI CONCEPT</div>
-        {imageLoading ? <div className="ai-image-loading"><span>✦</span><p>Creating your visual design…</p><small>This can take a little longer than the written concept.</small></div> : image ? <div className="ai-image-wrap"><img src={image} alt={`${concept.concept_name} visual concept`} /><div className="ai-image-label">AI VISUAL CONCEPT · FOR DESIGN DIRECTION</div></div> : imageError ? <div className="ai-image-error">{imageError}</div> : null}
+        {imageLoading ? <div className="ai-image-loading"><span>✦</span><p>Creating your visual design…</p><small>This can take a little longer than the written concept.</small></div> : image ? <>
+          <div className="ai-image-wrap"><a href={image} target="_blank" rel="noreferrer"><img src={image} alt={`${concept.concept_name} visual concept`} /></a><div className="ai-image-label">AI VISUAL CONCEPT · FOR DESIGN DIRECTION</div></div>
+          <div className="ai-image-actions"><button className="button ghost" type="button" onClick={saveImage} disabled={imageSaving}>{imageSaving ? 'Saving…' : 'Save Design Image ↓'}</button><button className="button light" type="button" onClick={requestQuote} disabled={imageSaving}>{imageSaving ? 'Preparing Quote…' : 'Request Quote With This Design ↗'}</button></div>
+        </> : imageError ? <div className="ai-image-error">{imageError}</div> : null}
         <h3>{concept.concept_name}</h3>
         <p>{concept.customer_summary}</p>
         <h4>Design features</h4><ul>{(concept.design_features || []).map((x: string, i: number) => <li key={i}>{x}</li>)}</ul>
         <h4>Practical notes</h4><p>{concept.practical_notes}</p>
-        <button className="button light" onClick={() => document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth' })}>Request a Quote for This Design ↗</button>
+        <button className="button light" type="button" onClick={requestQuote} disabled={imageSaving}>{imageSaving ? 'Preparing Quote…' : 'Request a Quote for This Design ↗'}</button>
       </> : <div className="ai-empty"><span>✦</span><h3>Your concept will appear here</h3><p>Describe what you imagine. The assistant will turn it into a clear design direction and visual concept for Stephen Metal Works.</p></div>}
     </div>
   </div>
